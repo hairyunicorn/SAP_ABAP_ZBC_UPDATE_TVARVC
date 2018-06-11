@@ -1,0 +1,1606 @@
+*&---------------------------------------------------------------------*
+*& Report  ZBC_UPDATE_TVARVC
+*&
+*&---------------------------------------------------------------------*
+*& 25.07.2012 STGAG M. Herzog
+*& Aktualisieren der Tabellenvariablen in Tabelle TVARVC
+*& Für jede zu aktualisierende Variable muss ein eigener Codingab-
+*& schnitt erstellt werden
+*&
+*& 31.07.2012 STGAG M. Herzog
+*& Ergänzen um Tabellenvariable Z_USZ_FALLARTWECHSEL
+*&---------------------------------------------------------------------*
+
+REPORT  zbc_update_tvarvc.
+
+*----------------------------------------------------------------------*
+*                          includes                                    *
+*----------------------------------------------------------------------*
+INCLUDE mndatachat.                    " CH/AT  - Definitionen
+
+*----------------------------------------------------------------------*
+*                          tables                                      *
+*----------------------------------------------------------------------*
+TABLES: tvarvc.
+
+*----------------------------------------------------------------------*
+*                          types                                       *
+*----------------------------------------------------------------------*
+TYPES: tyt_xmsg           TYPE STANDARD TABLE OF sprot_u.
+
+*----------------------------------------------------------------------*
+*                          data-definitions                            *
+*----------------------------------------------------------------------*
+
+* global tables
+DATA: gt_xmsg            TYPE tyt_xmsg.
+
+* global variables
+DATA: g_rc               TYPE sy-subrc.
+
+DATA: z_to_change TYPE i.
+DATA: z_changed   TYPE i.
+DATA: z_upd       TYPE i.
+DATA: z_del       TYPE i.
+DATA: z_ins       TYPE i.
+DATA: z_err_upd   TYPE i.
+DATA: z_err_del   TYPE i.
+DATA: z_err_ins   TYPE i.
+
+* global help-variables
+DATA: wa_tvarvc TYPE tvarvc,
+      wf_datuml TYPE sy-datum,
+      wf_datumh TYPE sy-datum,
+      mtext     TYPE string,
+      varnam    TYPE tvarvc-name.
+
+* field symbols
+FIELD-SYMBOLS: <tvarvc> TYPE tvarvc.
+
+*======================================================================*
+*                      start of work                                   *
+*======================================================================*
+START-OF-SELECTION.
+
+* Start Statistik
+  PERFORM prot_start.
+
+* Aufrufe für Funktionen
+  PERFORM z_bd87_erdat.
+  PERFORM z_boa_akut.
+  PERFORM z_boa_akut_del.
+  PERFORM z_boa_alle.
+  PERFORM z_boa_alle_del.
+  PERFORM z_boa_delete.
+  PERFORM z_boa_ksk.
+  PERFORM z_boa_ksk_del.
+  PERFORM z_boa_pdt.
+  PERFORM z_boa_pdt_del.
+  PERFORM z_boa_request.
+  PERFORM z_boa_request_all.
+  PERFORM z_ish_hcmlog.
+  PERFORM z_fixed_invoice_date.
+  PERFORM z_mat2fid_1701.
+  PERFORM z_mat2fid_1702.
+  PERFORM z_usz_fallartwechsel.
+  PERFORM z_were_kto.
+  PERFORM z_year2_prosp_stellenplan.
+  PERFORM z_year_prosp_stellenplan.
+  PERFORM z_zyto_dat.
+  PERFORM z_tiag_ops_dat_mm2ish.
+  PERFORM z_hr_lfjahr.
+  PERFORM z_hr_lfmonat.
+  PERFORM z_erster_tag_laufendes_jahr.
+  PERFORM z_erster_tag_naechstes_jahr.
+  PERFORM z_erster_tag_vorjahr.
+  PERFORM z_letzter_tag_vorjahr.
+
+
+* Ende Statstik
+  PERFORM prot_end.
+
+* Funktionen
+*&---------------------------------------------------------------------*
+*&      Form  z_year_prosp_stellenplan
+*&---------------------------------------------------------------------*
+*       wird für den prospektiven Stellenplan benötigt, da hier die Be-
+*       rechnung jeweils per Jahresende (= 31.12.xxxx) erfolgt
+*----------------------------------------------------------------------*
+FORM z_year_prosp_stellenplan.
+  CLEAR: wa_tvarvc, wf_datuml, wf_datumh, mtext.
+  varnam = 'Z_YEAR_PROSP_STELLENPLAN'.
+  SELECT SINGLE * FROM tvarvc INTO wa_tvarvc
+    WHERE name = varnam.
+
+  IF sy-subrc = 0.
+    wa_tvarvc-low = sy-datum(4).
+    MODIFY tvarvc FROM wa_tvarvc.
+    CHECK sy-subrc = 0.
+    z_upd = z_upd + 1.
+    PERFORM protocol    USING 2 co_success 'NV' '000'
+                              'Variable wurde aktualisiert: '
+                              varnam
+                              ''
+                              ''
+                     CHANGING gt_xmsg.
+  ELSE.
+    z_err_upd = z_err_upd + 1.
+    PERFORM protocol    USING 2 co_error 'NV' '000'
+                              'Variable wurde nicht gefunden: '
+                              varnam
+                              ''
+                              ''
+                     CHANGING gt_xmsg.
+  ENDIF.
+  CLEAR: wa_tvarvc, wf_datuml, wf_datumh, mtext.
+ENDFORM.                    "Z_YEAR_PROSP_STELLENPLAN
+
+*&---------------------------------------------------------------------*
+*&      Form  Z_USZ_FALLARTWECHSEL
+*&---------------------------------------------------------------------*
+*       wird für die Meldung der Fallartenwechsel benötigt, welche wö-
+*       chentlich erstellt wird. Dafür muss ein Datumsintervall berechnet
+*       werden welches 7 Tage in der Vergangenheit startet und bis heute
+*       andauert
+*----------------------------------------------------------------------*
+FORM z_usz_fallartwechsel.
+
+  CLEAR: wa_tvarvc, wf_datuml, wf_datumh, mtext.
+  varnam = 'Z_USZ_FALLARTWECHSEL'.
+  SELECT SINGLE * FROM tvarvc INTO wa_tvarvc
+    WHERE name = varnam.
+
+  IF sy-subrc = 0.
+    CALL FUNCTION 'RHPP_HALFVALUE_WORKFLOW_DATE' " Von-Datum berechnen
+      EXPORTING
+        date      = sy-datum
+        days      = '07'
+        months    = '00'
+        signum    = '-'
+        years     = '00'
+      IMPORTING
+        calc_date = wf_datuml.
+
+    wa_tvarvc-sign = 'I'.
+    wa_tvarvc-opti = 'BT'.
+    wa_tvarvc-low  = wf_datuml.
+    wa_tvarvc-high = sy-datum.
+    MODIFY tvarvc FROM wa_tvarvc.
+    CHECK sy-subrc = 0.
+    z_upd = z_upd + 1.
+    PERFORM protocol    USING 2 co_success 'NV' '000'
+                              'Variable wurde aktualisiert: '
+                              varnam
+                              ''
+                              ''
+                     CHANGING gt_xmsg.
+  ELSE.
+    z_err_upd = z_err_upd + 1.
+    PERFORM protocol    USING 2 co_error 'NV' '000'
+                              'Variable wurde nicht gefunden: '
+                              varnam
+                              ''
+                              ''
+                     CHANGING gt_xmsg.
+  ENDIF.
+  CLEAR: wa_tvarvc, wf_datuml, wf_datumh, mtext.
+ENDFORM.                    "Z_USZ_FALLARTWECHSEL
+
+*&---------------------------------------------------------------------*
+*&      Form  Z_FIXED_INVOICE_DATE
+*&---------------------------------------------------------------------*
+*       wird für die Datumsfixierung am Monatsende für den Abschluss
+*       benötigt
+*----------------------------------------------------------------------*
+FORM z_fixed_invoice_date.
+
+  CLEAR: wa_tvarvc, wf_datuml, wf_datumh, mtext.
+  varnam = 'Z_FIXED_INVOICE_DATE'.
+  SELECT SINGLE * FROM tvarvc INTO wa_tvarvc
+  WHERE name = varnam.
+
+  IF sy-subrc = 0.
+    CALL FUNCTION 'DATE_CONVERT_TO_FACTORYDATE'
+      EXPORTING
+        correct_option               = '-'       " vorhergehenden AT ermitteln
+        date                         = sy-datum " Tagesdatum verwenden
+        factory_calendar_id          = 'CH'     " Schweizer Kalender
+      IMPORTING
+        date                         = wf_datuml
+*       FACTORYDATE                  =
+*       WORKINGDAY_INDICATOR         =
+      EXCEPTIONS
+        calendar_buffer_not_loadable = 1
+        correct_option_invalid       = 2
+        date_after_range             = 3
+        date_before_range            = 4
+        date_invalid                 = 5
+        factory_calendar_not_found   = 6
+        OTHERS                       = 7.
+
+    CHECK sy-subrc = 0.
+    wa_tvarvc-low = wf_datuml.
+    MODIFY tvarvc FROM wa_tvarvc.
+    CHECK sy-subrc = 0.
+    z_upd = z_upd + 1.
+    PERFORM protocol    USING 2 co_success 'NV' '000'
+                              'Variable wurde aktualisiert: '
+                              varnam
+                              ''
+                              ''
+                     CHANGING gt_xmsg.
+  ELSE.
+    z_err_upd = z_err_upd + 1.
+    PERFORM protocol    USING 2 co_error 'NV' '000'
+                              'Variable wurde nicht gefunden: '
+                              varnam
+                              ''
+                              ''
+                     CHANGING gt_xmsg.
+  ENDIF.
+  CLEAR: wa_tvarvc, wf_datuml, wf_datumh, mtext.
+ENDFORM.                    "Z_FIXED_INVOICE_DATE
+
+*&---------------------------------------------------------------------*
+*&      Form  Z_WERE_KTO
+*&---------------------------------------------------------------------*
+*       wird für die Zeitraumsberechnung der sporadischen Kontrolle
+*       für das WE/RE-Kontos verwendet
+*----------------------------------------------------------------------*
+FORM z_were_kto.
+
+  CLEAR: wa_tvarvc, wf_datuml, wf_datumh, mtext.
+  varnam = 'Z_WERE_KTO'.
+  SELECT SINGLE * FROM tvarvc INTO wa_tvarvc
+    WHERE name = varnam.
+
+  IF sy-subrc = 0.
+    CALL FUNCTION 'RHPP_HALFVALUE_WORKFLOW_DATE' " Von-Datum berechnen
+      EXPORTING
+        date      = sy-datum
+        days      = '30'                         " Tagesdatum - 30 Tage
+        months    = '00'
+        signum    = '-'
+        years     = '00'
+      IMPORTING
+        calc_date = wf_datuml.
+
+    wa_tvarvc-sign = 'I'.
+    wa_tvarvc-opti = 'BT'.
+    wa_tvarvc-low  = '20130301'.
+    wa_tvarvc-high = wf_datuml.
+    MODIFY tvarvc FROM wa_tvarvc.
+    CHECK sy-subrc = 0.
+    z_upd = z_upd + 1.
+    PERFORM protocol    USING 2 co_success 'NV' '000'
+                              'Variable wurde aktualisiert: '
+                              varnam
+                              ''
+                              ''
+                     CHANGING gt_xmsg.
+  ELSE.
+    z_err_upd = z_err_upd + 1.
+    PERFORM protocol    USING 2 co_error 'NV' '000'
+                              'Variable wurde nicht gefunden: '
+                              varnam
+                              ''
+                              ''
+                     CHANGING gt_xmsg.
+  ENDIF.
+  CLEAR: wa_tvarvc, wf_datuml, wf_datumh, mtext.
+ENDFORM.                    "Z_WERE_KTO
+
+*&---------------------------------------------------------------------*
+*&      Form  Z_YEAR2_PROSP_STELLENPLAN
+*&---------------------------------------------------------------------*
+*       wird für den prospektiven Stellenplan benötigt, da hier die
+*       Berechnung jeweils per Jahresende des Folgejahres erfolgt
+*----------------------------------------------------------------------*
+FORM z_year2_prosp_stellenplan.
+
+  CLEAR: wa_tvarvc, wf_datuml, wf_datumh, mtext.
+  varnam = 'Z_YEAR2_PROSP_STELLENPLAN'.
+  SELECT SINGLE * FROM tvarvc INTO wa_tvarvc
+    WHERE name = varnam.
+
+  IF sy-subrc = 0.
+    wa_tvarvc-low = sy-datum(4) + 1.
+    CALL FUNCTION 'CONVERSION_EXIT_ALPHA_OUTPUT'
+      EXPORTING
+        input  = wa_tvarvc-low
+      IMPORTING
+        output = wa_tvarvc-low.
+
+    MODIFY tvarvc FROM wa_tvarvc.
+    CHECK sy-subrc = 0.
+    z_upd = z_upd + 1.
+    PERFORM protocol    USING 2 co_success 'NV' '000'
+                              'Variable wurde aktualisiert: '
+                              varnam
+                              ''
+                              ''
+                     CHANGING gt_xmsg.
+  ELSE.
+    z_err_upd = z_err_upd + 1.
+    PERFORM protocol    USING 2 co_error 'NV' '000'
+                              'Variable wurde nicht gefunden: '
+                              varnam
+                              ''
+                              ''
+                     CHANGING gt_xmsg.
+  ENDIF.
+  CLEAR: wa_tvarvc, wf_datuml, wf_datumh, mtext.
+ENDFORM.                    "Z_YEAR2_PROSP_STELLENPLAN
+
+*&---------------------------------------------------------------------*
+*&      Form  Z_BOA_REQUEST
+*&---------------------------------------------------------------------*
+*       wird für die BatchOnlineAbfrage verwendet, damit die Besuche
+*       bzw. stat. Aufenthalte in einen Fallstapel geschrieben werden
+*       können.
+*----------------------------------------------------------------------*
+FORM z_boa_request.
+  CLEAR: wa_tvarvc, wf_datuml, wf_datumh, mtext.
+  varnam = 'Z_BOA_REQUEST'.
+  SELECT SINGLE * FROM tvarvc INTO wa_tvarvc
+    WHERE name = varnam.
+
+  IF sy-subrc = 0.
+    CALL FUNCTION 'RHPP_HALFVALUE_WORKFLOW_DATE' " Von-Datum berechnen
+      EXPORTING
+        date      = sy-datum
+        days      = '04'                         " Tagesdatum - 4 Tage
+        months    = '00'
+        signum    = '-'
+        years     = '00'
+      IMPORTING
+        calc_date = wf_datuml.
+
+    wa_tvarvc-sign = 'I'.
+    wa_tvarvc-opti = 'BT'.
+    wa_tvarvc-low  = wf_datuml.
+    wa_tvarvc-high = wf_datuml.
+    MODIFY tvarvc FROM wa_tvarvc.
+    CHECK sy-subrc = 0.
+    z_upd = z_upd + 1.
+    PERFORM protocol    USING 2 co_success 'NV' '000'
+                              'Variable wurde aktualisiert: '
+                              varnam
+                              ''
+                              ''
+                     CHANGING gt_xmsg.
+  ELSE.
+    z_err_upd = z_err_upd + 1.
+    PERFORM protocol    USING 2 co_error 'NV' '000'
+                              'Variable wurde nicht gefunden: '
+                              varnam
+                              ''
+                              ''
+                     CHANGING gt_xmsg.
+  ENDIF.
+  CLEAR: wa_tvarvc, wf_datuml, wf_datumh, mtext.
+ENDFORM.                    "Z_BOA_REQUEST
+
+*&---------------------------------------------------------------------*
+*&      Form  Z_BOA_REQUEST_ALL
+*&---------------------------------------------------------------------*
+*       wird für die BatchOnlineAbfrage verwendet, damit die Besuche bzw.
+*       stat. Aufenthalte in einen Fallstapel geschrieben werden können.
+*
+*       Das Zeitraums-Intervall wird dynamisch berechnet:
+*       Start: Tagesdatum - 1 Jahr / 1 Monat / 5 Tage -> 402 Tage retour
+*       Ende:  Tagesdatum - 0 Jahr / 0 Monat / 4 Tage ->   4 Tage retour
+*----------------------------------------------------------------------*
+FORM z_boa_request_all.
+  CLEAR: wa_tvarvc, wf_datuml, wf_datumh, mtext.
+  varnam = 'Z_BOA_REQUEST_ALL'.
+  SELECT SINGLE * FROM tvarvc INTO wa_tvarvc
+    WHERE name = varnam.
+
+  IF sy-subrc = 0.
+    DATA: lt_duration LIKE psen_duration.
+
+* Von-Datum berechnen
+    lt_duration-duryy = '01'.                         " Tagesdatum - 1 Jahr
+    lt_duration-durmm = '01'.                         " Tagesdatum - 1 Monat
+    lt_duration-durdd = '05'.                         " Tagesdatum - 5 Tage
+
+    wa_tvarvc-sign = 'I'.
+    wa_tvarvc-opti = 'BT'.
+    CALL FUNCTION 'HR_99S_DATE_ADD_SUB_DURATION'
+      EXPORTING
+        im_date     = sy-datum
+        im_operator = '-'
+        im_duration = lt_duration
+      IMPORTING
+        ex_date     = wf_datuml.
+    wa_tvarvc-low = wf_datuml.
+
+    CLEAR: lt_duration.
+* Bis-Datum berechnen
+    lt_duration-durdd = '04'.                         " Tagesdatum - 4 Tage
+
+    CALL FUNCTION 'HR_99S_DATE_ADD_SUB_DURATION'
+      EXPORTING
+        im_date     = sy-datum
+        im_operator = '-'
+        im_duration = lt_duration
+      IMPORTING
+        ex_date     = wf_datuml.
+    wa_tvarvc-high = wf_datuml.
+
+    MODIFY tvarvc FROM wa_tvarvc.
+    CHECK sy-subrc = 0.
+    z_upd = z_upd + 1.
+    PERFORM protocol    USING 2 co_success 'NV' '000'
+                              'Variable wurde aktualisiert: '
+                              varnam
+                              ''
+                              ''
+                     CHANGING gt_xmsg.
+  ELSE.
+    z_err_upd = z_err_upd + 1.
+    PERFORM protocol    USING 2 co_error 'NV' '000'
+                              'Variable wurde nicht gefunden: '
+                              varnam
+                              ''
+                              ''
+                     CHANGING gt_xmsg.
+  ENDIF.
+  CLEAR: wa_tvarvc, wf_datuml, wf_datumh, mtext.
+ENDFORM.                    "Z_BOA_REQUEST_ALL
+
+*&---------------------------------------------------------------------*
+*&      Form  Z_BOA_ALLE
+*&---------------------------------------------------------------------*
+*       wird für die BOA benötigt, um den Namen des Fallstapels dy-
+*       namisch je Tagesdatum erstellen zu können.
+*       Wird in Varianten zu folgenden Programmen verwendet:
+*       - RNASED00
+*       - RNWCHASEL01
+*       - RNASEL00
+*       - RNWCH_BOA_INQ
+*----------------------------------------------------------------------*
+FORM z_boa_alle.
+  CLEAR: wa_tvarvc, wf_datuml, wf_datumh, mtext.
+  varnam = 'Z_BOA_ALLE'.
+  SELECT SINGLE * FROM tvarvc INTO wa_tvarvc
+    WHERE name = varnam.
+
+  IF sy-subrc = 0.
+    CONCATENATE 'BA_A' sy-datum INTO mtext.
+    wa_tvarvc-low = mtext.
+    MODIFY tvarvc FROM wa_tvarvc.
+    CHECK sy-subrc = 0.
+    z_upd = z_upd + 1.
+    PERFORM protocol    USING 2 co_success 'NV' '000'
+                              'Variable wurde aktualisiert: '
+                              varnam
+                              ''
+                              ''
+                     CHANGING gt_xmsg.
+  ELSE.
+    z_err_upd = z_err_upd + 1.
+    PERFORM protocol    USING 2 co_error 'NV' '000'
+                              'Variable wurde nicht gefunden: '
+                              varnam
+                              ''
+                              ''
+                     CHANGING gt_xmsg.
+  ENDIF.
+  CLEAR: wa_tvarvc, wf_datuml, wf_datumh, mtext.
+ENDFORM.                    "Z_BOA_ALLE
+
+*&---------------------------------------------------------------------*
+*&      Form  Z_BOA_ALLE_DEL
+*&---------------------------------------------------------------------*
+*       wird für die BOA benötigt, um den Namen des Fallstapels dy-
+*       namisch je Tagesdatum erstellen zu können.
+*       Wird in Varianten zu folgenden Programmen verwendet:
+*       - RNASED00
+*       - RNWCHASEL01
+*       - RNASEL00
+*       - RNWCH_BOA_INQ
+*----------------------------------------------------------------------*
+FORM z_boa_alle_del.
+  CLEAR: wa_tvarvc, wf_datuml, wf_datumh, mtext.
+  varnam = 'Z_BOA_ALLE_DEL'.
+  SELECT SINGLE * FROM tvarvc INTO wa_tvarvc
+    WHERE name = varnam.
+
+  IF sy-subrc = 0.
+    CONCATENATE 'BA_A' sy-datum INTO mtext.
+    wa_tvarvc-low = mtext.
+    MODIFY tvarvc FROM wa_tvarvc.
+    CHECK sy-subrc = 0.
+    z_upd = z_upd + 1.
+    PERFORM protocol    USING 2 co_success 'NV' '000'
+                              'Variable wurde aktualisiert: '
+                              varnam
+                              ''
+                              ''
+                     CHANGING gt_xmsg.
+  ELSE.
+    z_err_upd = z_err_upd + 1.
+    PERFORM protocol    USING 2 co_error 'NV' '000'
+                              'Variable wurde nicht gefunden: '
+                              varnam
+                              ''
+                              ''
+                     CHANGING gt_xmsg.
+  ENDIF.
+  CLEAR: wa_tvarvc, wf_datuml, wf_datumh, mtext.
+ENDFORM.                    "Z_BOA_ALLE
+
+*&---------------------------------------------------------------------*
+*&      Form  Z_BOA_AKUT
+*&---------------------------------------------------------------------*
+*       wird für die BOA benötigt, um den Namen des Fallstapels dy-
+*       namisch je Tagesdatum erstellen zu können.
+*       Wird in Varianten zu folgenden Programmen verwendet:
+*       - RNASED00
+*       - RNWCHASEL01
+*       - RNASEL00
+*       - RNWCH_BOA_INQ
+*----------------------------------------------------------------------*
+FORM z_boa_akut.
+  CLEAR: wa_tvarvc, wf_datuml, wf_datumh, mtext.
+  varnam = 'Z_BOA_AKUT'.
+  SELECT SINGLE * FROM tvarvc INTO wa_tvarvc
+    WHERE name = varnam.
+
+  IF sy-subrc = 0.
+    CONCATENATE 'BA_S' sy-datum INTO mtext.
+    wa_tvarvc-low = mtext.
+    MODIFY tvarvc FROM wa_tvarvc.
+    CHECK sy-subrc = 0.
+    z_upd = z_upd + 1.
+    PERFORM protocol    USING 2 co_success 'NV' '000'
+                              'Variable wurde aktualisiert: '
+                              varnam
+                              ''
+                              ''
+                     CHANGING gt_xmsg.
+  ELSE.
+    z_err_upd = z_err_upd + 1.
+    PERFORM protocol    USING 2 co_error 'NV' '000'
+                              'Variable wurde nicht gefunden: '
+                              varnam
+                              ''
+                              ''
+                     CHANGING gt_xmsg.
+  ENDIF.
+  CLEAR: wa_tvarvc, wf_datuml, wf_datumh, mtext.
+ENDFORM.                    "Z_BOA_DEL_AKUT
+
+*&---------------------------------------------------------------------*
+*&      Form  Z_BOA_DEL_AKUT
+*&---------------------------------------------------------------------*
+*       wird für die BOA benötigt, um den Namen des Fallstapels dy-
+*       namisch je Tagesdatum löschen zu können.
+*       Wird in Varianten zu folgenden Programmen verwendet:
+*       - RNASED00
+*       - RNWCHASEL01
+*       - RNASEL00
+*       - RNWCH_BOA_INQ
+*----------------------------------------------------------------------*
+FORM z_boa_akut_del.
+  CLEAR: wa_tvarvc, wf_datuml, wf_datumh, mtext.
+  varnam = 'Z_BOA_AKUT_DEL'.
+  SELECT SINGLE * FROM tvarvc INTO wa_tvarvc
+    WHERE name = varnam.
+
+  IF sy-subrc = 0.
+    CONCATENATE 'BA_S' sy-datum INTO mtext.
+    wa_tvarvc-low = mtext.
+    MODIFY tvarvc FROM wa_tvarvc.
+    CHECK sy-subrc = 0.
+    z_upd = z_upd + 1.
+    PERFORM protocol    USING 2 co_success 'NV' '000'
+                              'Variable wurde aktualisiert: '
+                              varnam
+                              ''
+                              ''
+                     CHANGING gt_xmsg.
+  ELSE.
+    z_err_upd = z_err_upd + 1.
+    PERFORM protocol    USING 2 co_error 'NV' '000'
+                              'Variable wurde nicht gefunden: '
+                              varnam
+                              ''
+                              ''
+                     CHANGING gt_xmsg.
+  ENDIF.
+  CLEAR: wa_tvarvc, wf_datuml, wf_datumh, mtext.
+ENDFORM.                    "Z_BOA_DEL_AKUT
+
+*&---------------------------------------------------------------------*
+*&      Form  Z_BOA_PDT
+*&---------------------------------------------------------------------*
+*       wird für die BOA benötigt, um den Namen des Fallstapels dy-
+*       namisch je Tagesdatum erstellen zu können.
+*       Wird in Varianten zu folgenden Programmen verwendet:
+*       - RNASED00
+*       - RNWCHASEL01
+*       - RNASEL00
+*       - RNWCH_BOA_INQ
+*----------------------------------------------------------------------*
+FORM z_boa_pdt.
+  CLEAR: wa_tvarvc, wf_datuml, wf_datumh, mtext.
+  varnam = 'Z_BOA_PDT'.
+  SELECT SINGLE * FROM tvarvc INTO wa_tvarvc
+    WHERE name = varnam.
+
+  IF sy-subrc = 0.
+    CONCATENATE 'BA_P' sy-datum INTO mtext.
+    wa_tvarvc-low = mtext.
+    MODIFY tvarvc FROM wa_tvarvc.
+    CHECK sy-subrc = 0.
+    z_upd = z_upd + 1.
+    PERFORM protocol    USING 2 co_success 'NV' '000'
+                              'Variable wurde aktualisiert: '
+                              varnam
+                              ''
+                              ''
+                     CHANGING gt_xmsg.
+  ELSE.
+    z_err_upd = z_err_upd + 1.
+    PERFORM protocol    USING 2 co_error 'NV' '000'
+                              'Variable wurde nicht gefunden: '
+                              varnam
+                              ''
+                              ''
+                     CHANGING gt_xmsg.
+  ENDIF.
+  CLEAR: wa_tvarvc, wf_datuml, wf_datumh, mtext.
+ENDFORM.                    "Z_BOA_PDT
+
+*&---------------------------------------------------------------------*
+*& Z_BOA_DEL_KSK
+*& wird für die BOA benötigt, um den Namen des Fallstapels dynamisch je
+*& Tagesdatum löschen zu können.
+*& Wird in Varianten zu folgenden Programmen verwendet:
+*& - RNASED00
+*& - RNWCHASEL01
+*& - RNASEL00
+*& - RNWCH_BOA_INQ
+*&---------------------------------------------------------------------*
+FORM z_boa_pdt_del.
+  CLEAR: wa_tvarvc, wf_datuml, wf_datumh, mtext.
+  varnam = 'Z_BOA_PDT_DEL'.
+  SELECT SINGLE * FROM tvarvc INTO wa_tvarvc
+    WHERE name = varnam.
+
+  IF sy-subrc = 0.
+    CONCATENATE 'BA_P' sy-datum INTO mtext.
+    wa_tvarvc-low = mtext.
+    MODIFY tvarvc FROM wa_tvarvc.
+    CHECK sy-subrc = 0.
+    z_upd = z_upd + 1.
+    PERFORM protocol    USING 2 co_success 'NV' '000'
+                              'Variable wurde aktualisiert: '
+                              varnam
+                              ''
+                              ''
+                     CHANGING gt_xmsg.
+  ELSE.
+    z_err_upd = z_err_upd + 1.
+    PERFORM protocol    USING 2 co_error 'NV' '000'
+                              'Variable wurde nicht gefunden: '
+                              varnam
+                              ''
+                              ''
+                     CHANGING gt_xmsg.
+  ENDIF.
+  CLEAR: wa_tvarvc, wf_datuml, wf_datumh, mtext.
+ENDFORM.                    "Z_BOA_DEL_KSK
+
+*&---------------------------------------------------------------------*
+*&      Form  Z_BOA_KSK
+*&---------------------------------------------------------------------*
+*       wird für die BOA benötigt, um den Namen des Fallstapels dy-
+*       namisch je Tagesdatum erstellen zu können.
+*       Wird in Varianten zu folgenden Programmen verwendet:
+*       - RNASED00
+*       - RNWCHASEL01
+*       - RNASEL00
+*       - RNWCH_BOA_INQ
+*----------------------------------------------------------------------*
+FORM z_boa_ksk.
+  CLEAR: wa_tvarvc, wf_datuml, wf_datumh, mtext.
+  varnam = 'Z_BOA_KSK'.
+  SELECT SINGLE * FROM tvarvc INTO wa_tvarvc
+    WHERE name = varnam.
+
+  IF sy-subrc = 0.
+    CONCATENATE 'BA_K' sy-datum INTO mtext.
+    wa_tvarvc-low = mtext.
+    MODIFY tvarvc FROM wa_tvarvc.
+    CHECK sy-subrc = 0.
+    z_upd = z_upd + 1.
+    PERFORM protocol    USING 2 co_success 'NV' '000'
+                              'Variable wurde aktualisiert: '
+                              varnam
+                              ''
+                              ''
+                     CHANGING gt_xmsg.
+  ELSE.
+    z_err_upd = z_err_upd + 1.
+    PERFORM protocol    USING 2 co_error 'NV' '000'
+                              'Variable wurde nicht gefunden: '
+                              varnam
+                              ''
+                              ''
+                     CHANGING gt_xmsg.
+  ENDIF.
+  CLEAR: wa_tvarvc, wf_datuml, wf_datumh, mtext.
+ENDFORM.                    "Z_BOA_KSK
+
+*&---------------------------------------------------------------------*
+*& Z_BOA_DEL_KSK
+*& wird für die BOA benötigt, um den Namen des Fallstapels dynamisch je
+*& Tagesdatum löschen zu können.
+*& Wird in Varianten zu folgenden Programmen verwendet:
+*& - RNASED00
+*& - RNWCHASEL01
+*& - RNASEL00
+*& - RNWCH_BOA_INQ
+*&---------------------------------------------------------------------*
+FORM z_boa_ksk_del.
+  CLEAR: wa_tvarvc, wf_datuml, wf_datumh, mtext.
+  varnam = 'Z_BOA_KSK_DEL'.
+  SELECT SINGLE * FROM tvarvc INTO wa_tvarvc
+    WHERE name = varnam.
+
+  IF sy-subrc = 0.
+    CONCATENATE 'BA_K' sy-datum INTO mtext.
+    wa_tvarvc-low = mtext.
+    MODIFY tvarvc FROM wa_tvarvc.
+    CHECK sy-subrc = 0.
+    z_upd = z_upd + 1.
+    PERFORM protocol    USING 2 co_success 'NV' '000'
+                              'Variable wurde aktualisiert: '
+                              varnam
+                              ''
+                              ''
+                     CHANGING gt_xmsg.
+  ELSE.
+    z_err_upd = z_err_upd + 1.
+    PERFORM protocol    USING 2 co_error 'NV' '000'
+                              'Variable wurde nicht gefunden: '
+                              varnam
+                              ''
+                              ''
+                     CHANGING gt_xmsg.
+  ENDIF.
+  CLEAR: wa_tvarvc, wf_datuml, wf_datumh, mtext.
+ENDFORM.                    "Z_BOA_DEL_KSK
+
+*&---------------------------------------------------------------------*
+*& Z_BOA_DELETE
+*& wird für die BOA benötigt, um die verwendeten Fallstapel dynamisch
+*& löschen zu können.
+*& Wird in Varianten zu folgenden Programmen verwendet:
+*& - RNASED00
+*&---------------------------------------------------------------------*
+FORM z_boa_delete.
+  CLEAR: wa_tvarvc, wf_datuml, wf_datumh, mtext.
+  varnam = 'Z_BOA_DELETE'.
+  SELECT SINGLE * FROM tvarvc INTO wa_tvarvc
+    WHERE name = varnam.
+
+  IF sy-subrc = 0.
+    CONCATENATE 'BA_*' sy-datum INTO mtext.
+    wa_tvarvc-low = mtext.
+    MODIFY tvarvc FROM wa_tvarvc.
+    CHECK sy-subrc = 0.
+    z_upd = z_upd + 1.
+    PERFORM protocol    USING 2 co_success 'NV' '000'
+                              'Variable wurde aktualisiert: '
+                              varnam
+                              ''
+                              ''
+                     CHANGING gt_xmsg.
+  ELSE.
+    z_err_upd = z_err_upd + 1.
+    PERFORM protocol    USING 2 co_error 'NV' '000'
+                              'Variable wurde nicht gefunden: '
+                              varnam
+                              ''
+                              ''
+                     CHANGING gt_xmsg.
+  ENDIF.
+  CLEAR: wa_tvarvc, wf_datuml, wf_datumh, mtext.
+ENDFORM.                    "Z_BOA_DELETE
+
+*&---------------------------------------------------------------------*
+*&      Form  Z_BD87_ERDAT
+*&---------------------------------------------------------------------*
+*       wird für die tägl. Datumsberechnung benötigt, um die versandten
+*       Idocs zu prüfen
+*       Diese Variable ist eine Intervall-Variable, wir wollen aber nur
+*       die Idocs vom vorhergehenden Arbeitstag sehen, da diese tägl.
+*       geprüft werden (sollten)
+*----------------------------------------------------------------------*
+FORM z_bd87_erdat.
+  CLEAR: wa_tvarvc, wf_datuml, wf_datuml, wf_datumh, mtext.
+  varnam = 'Z_BD87_ERDAT'.
+  SELECT SINGLE * FROM tvarvc INTO wa_tvarvc
+  WHERE name = varnam.
+
+  IF sy-subrc = 0.
+    z_upd = z_upd + 1.
+    CALL FUNCTION 'BKK_ADD_WORKINGDAY'
+      EXPORTING
+        i_date      = sy-datum   " Ausgangsdatum für Datumsberechnung
+        i_days      = '1-'       " Anzahl Arbeitstage für Berechnung
+        i_calendar1 = 'CH'       " Fabrikkalender
+      IMPORTING
+        e_date      = wf_datuml.  " Datum
+
+    CHECK sy-subrc = 0.
+    wa_tvarvc-low  = wf_datuml.   " berechnetes Datum übernehmen
+    wa_tvarvc-high = sy-datum.   " Tagesdatum übernehmen
+    MODIFY tvarvc FROM wa_tvarvc.
+    CHECK sy-subrc = 0.
+    PERFORM protocol    USING 2 co_success 'NV' '000'
+                              'Variable wurde aktualisiert: '
+                              varnam
+                              ''
+                              ''
+                     CHANGING gt_xmsg.
+  ELSE.
+    z_err_upd = z_err_upd + 1.
+    PERFORM protocol    USING 2 co_error 'NV' '000'
+                              'Variable wurde nicht gefunden: '
+                              varnam
+                              ''
+                              ''
+                     CHANGING gt_xmsg.
+  ENDIF.
+  CLEAR: wa_tvarvc, wf_datuml, wf_datuml, wf_datumh, mtext.
+ENDFORM.                    "Z_BD87_ERDAT
+
+
+*&---------------------------------------------------------------------*
+*&      Form  Z_ZYTO_DAT
+*&---------------------------------------------------------------------*
+* Ersteller   : G_MHERZO / M. Herzog - Spital Thurgau AG, Frauenfeld
+* Datum       : 13.04.2015
+* Beschreibung: Wird für die tägl. Datumsberechnung benötigt, um die
+*               Menge der zu fakturierenden Zytostatika-Aufträge zu
+*               bestimmen
+*
+*               Die Spitalpharmazie erfasst die Zytostatika-Aufträge
+*               fortlaufend. Danach soll jedoch innerhalb von 5 Ar-
+*               beitstagen eine Kontrolle betr. Datenqualität/-voll-
+*               ständigkeit erfolgen. In diesem Zeitraum sollen die
+*               Aufträge jedoch weder per Idoc verrechnet noch die
+*               Leistungen ans IS-H übermittelt werden.
+*
+*               Der Einfachheit halber wird zuerst das End-Datum be-
+*               rechnet. Mit diesem Ergebnis wird alsdann der Vormo-
+*               nat bestimmt. Dieses Vorgehen macht speziell am
+*               Monatsanfang Sinn.
+*----------------------------------------------------------------------*
+FORM z_zyto_dat.
+  CLEAR: wa_tvarvc, wf_datuml, wf_datumh, mtext.
+  DATA: lt_rsintrange TYPE TABLE OF rsintrange.
+  varnam = 'Z_ZYTO_DAT'.
+  SELECT SINGLE * FROM tvarvc INTO wa_tvarvc
+  WHERE name = varnam.
+
+  IF sy-subrc = 0.
+    z_upd = z_upd + 1.
+
+    "Enddatum bestimmen
+    CALL FUNCTION 'BKK_ADD_WORKINGDAY'
+      EXPORTING
+        i_date      = sy-datum   " Ausgangsdatum für Datumsberechnung
+        i_days      = '5-'       " Anzahl Arbeitstage für Berechnung
+        i_calendar1 = 'CH'       " Fabrikkalender
+      IMPORTING
+        e_date      = wf_datumh.  " Datum
+
+    "Startdatum bestimmen (1. des Vormonats)
+    CALL FUNCTION 'RP_CALC_DATE_IN_INTERVAL'
+      EXPORTING
+        date      = wf_datumh
+        days      = 00
+        months    = 01
+        signum    = '-'
+        years     = 00
+      IMPORTING
+        calc_date = wf_datuml.
+
+    CHECK sy-subrc = 0.
+    wf_datuml+6(02) = '01'.      " fix den 1. einsetzen
+    wa_tvarvc-low  = wf_datuml.  " berechnetes Datum übernehmen
+    wa_tvarvc-high = wf_datumh.  " Tagesdatum übernehmen
+    MODIFY tvarvc FROM wa_tvarvc.
+    CHECK sy-subrc = 0.
+    PERFORM protocol    USING 2 co_success 'NV' '000'
+                              'Variable wurde aktualisiert: '
+                              varnam
+                              ''
+                              ''
+                     CHANGING gt_xmsg.
+  ELSE.
+    z_err_upd = z_err_upd + 1.
+    PERFORM protocol    USING 2 co_error 'NV' '000'
+                              'Variable wurde nicht gefunden: '
+                              varnam
+                              ''
+                              ''
+                     CHANGING gt_xmsg.
+  ENDIF.
+  CLEAR: wa_tvarvc, wf_datuml, wf_datumh, mtext.
+ENDFORM.                    "Z_ZYTO_DAT
+
+
+*&---------------------------------------------------------------------*
+*&      Form  Z_ZYTO_DAT
+*&---------------------------------------------------------------------*
+* Ersteller   : G_MHERZO / M. Herzog - Spital Thurgau AG, Frauenfeld
+* Datum       : 12.12.2017
+* Beschreibung: Wird für die tägl. Datumsberechnung benötigt, um die
+*               Menge der zu fakturierenden TIAG OPS-Aufträge zu
+*               bestimmen
+*
+*               Die TIAG OPS-Abteilung erfasst die Aufträge fortlaufend.
+*
+*               Der Einfachheit halber wird zuerst das End-Datum be-
+*               rechnet. Mit diesem Ergebnis wird alsdann der Vormo-
+*               nat bestimmt. Dieses Vorgehen macht speziell am
+*               Monatsanfang Sinn.
+*----------------------------------------------------------------------*
+FORM z_tiag_ops_dat_mm2ish.
+  CLEAR: wa_tvarvc, wf_datuml, wf_datumh, mtext.
+  DATA: lt_rsintrange TYPE TABLE OF rsintrange.
+  varnam = 'Z_TIAG_OPS_DAT_MM2ISH'.
+  SELECT SINGLE * FROM tvarvc INTO wa_tvarvc
+  WHERE name = varnam.
+
+  IF sy-subrc = 0.
+    z_upd = z_upd + 1.
+
+    "Enddatum bestimmen
+    CALL FUNCTION 'BKK_ADD_WORKINGDAY'
+      EXPORTING
+        i_date      = sy-datum   " Ausgangsdatum für Datumsberechnung
+        i_days      = '1-'       " Anzahl Arbeitstage für Berechnung
+        i_calendar1 = 'CH'       " Fabrikkalender
+      IMPORTING
+        e_date      = wf_datumh.  " Datum
+
+    "Startdatum bestimmen (1. des Vormonats)
+    CALL FUNCTION 'RP_CALC_DATE_IN_INTERVAL'
+      EXPORTING
+        date      = wf_datumh
+        days      = 00
+        months    = 01
+        signum    = '-'
+        years     = 00
+      IMPORTING
+        calc_date = wf_datuml.
+
+    CHECK sy-subrc = 0.
+    wf_datuml+6(02) = '01'.      " fix den 1. einsetzen
+    wa_tvarvc-low  = wf_datuml.  " berechnetes Datum übernehmen
+    wa_tvarvc-high = wf_datumh.  " Tagesdatum übernehmen
+    MODIFY tvarvc FROM wa_tvarvc.
+    CHECK sy-subrc = 0.
+    PERFORM protocol    USING 2 co_success 'NV' '000'
+                              'Variable wurde aktualisiert: '
+                              varnam
+                              ''
+                              ''
+                     CHANGING gt_xmsg.
+  ELSE.
+    z_err_upd = z_err_upd + 1.
+    PERFORM protocol    USING 2 co_error 'NV' '000'
+                              'Variable wurde nicht gefunden: '
+                              varnam
+                              ''
+                              ''
+                     CHANGING gt_xmsg.
+  ENDIF.
+  CLEAR: wa_tvarvc, wf_datuml, wf_datumh, mtext.
+ENDFORM.                    "Z_TIAG_OPS_DAT_MM2ISH
+
+
+*&---------------------------------------------------------------------*
+*&      Form  Z_ISH_HCMLOG
+*&---------------------------------------------------------------------*
+* Ersteller   : G_MHERZO / M. Herzog - Spital Thurgau AG, Frauenfeld
+* Datum       : 26.11.2015
+* Beschreibung: Wird für die tägl. Datumsberechnung benötigt, um die
+*               Schnittstelle des Leistungsimportes zu überwachen.
+*
+*               Die Datumsberechnung soll jeweils vom aktuellen Tag
+*               ausgehend den vorhergehenden Arbeitstag bestimmen und
+*               in die Werte Low bzw. High einstellen.
+*----------------------------------------------------------------------*
+FORM z_ish_hcmlog.
+  CLEAR: wa_tvarvc, wf_datuml, wf_datumh, mtext.
+  DATA: lt_rsintrange TYPE TABLE OF rsintrange.
+  varnam = 'Z_ISH_HCMLOG'.
+  SELECT SINGLE * FROM tvarvc INTO wa_tvarvc
+  WHERE name = varnam.
+
+  IF sy-subrc = 0.
+    z_upd = z_upd + 1.
+
+    "Enddatum bestimmen -) Tagesdatum
+    wf_datumh = sy-datum.
+
+    "Startdatum bestimmen (heute - 1 Arbeitstag gem. Fabrikkalender CH)
+    CALL FUNCTION 'BKK_ADD_WORKINGDAY'
+      EXPORTING
+        i_date      = wf_datumh  " Ausgangsdatum für Datumsberechnung
+        i_days      = '1-'       " Anzahl Arbeitstage für Berechnung
+        i_calendar1 = 'CH'       " Fabrikkalender
+      IMPORTING
+        e_date      = wf_datuml. " Datum
+
+    "Enddatum bestimmen (ber. Datum + 1 Kalendertag)
+    CALL FUNCTION 'BKK_ADD_WORKINGDAY'
+      EXPORTING
+        i_date = wf_datuml  " Ausgangsdatum für Datumsberechnung
+        i_days = '1'        " Anzahl Kalendertage für Berechnung
+*       i_calendar1 = 'CH'        " Fabrikkalender
+      IMPORTING
+        e_date = wf_datuml. " Datum
+
+
+    wa_tvarvc-low  = wf_datuml.  " berechnetes Datum übernehmen
+    wa_tvarvc-high = wf_datumh.  " Tagesdatum übernehmen
+
+    MODIFY tvarvc FROM wa_tvarvc.
+    CHECK sy-subrc = 0.
+    PERFORM protocol    USING 2 co_success 'NV' '000'
+                              'Variable wurde aktualisiert: '
+                              varnam
+                              ''
+                              ''
+                     CHANGING gt_xmsg.
+  ELSE.
+    z_err_upd = z_err_upd + 1.
+    PERFORM protocol    USING 2 co_error 'NV' '000'
+                              'Variable wurde nicht gefunden: '
+                              varnam
+                              ''
+                              ''
+                     CHANGING gt_xmsg.
+  ENDIF.
+  CLEAR: wa_tvarvc, wf_datuml, wf_datumh, mtext.
+ENDFORM.                    "Z_ISH_HCMLOG
+
+
+*&---------------------------------------------------------------------*
+*&      Form  Z_HR_LFJAHR
+*&---------------------------------------------------------------------*
+*       wird im HR für das 'Einheitliche LohnMeldeverfahren' (ELM) be-
+*       nötigt.
+*       Diese Variable ist eine Parameter-Variable.
+*----------------------------------------------------------------------*
+FORM z_hr_lfjahr.
+  CLEAR: wa_tvarvc, wf_datuml, wf_datuml, wf_datumh, mtext.
+  varnam = 'Z_HR_LFJAHR'.
+  SELECT SINGLE * FROM tvarvc INTO wa_tvarvc
+  WHERE name = varnam.
+
+  IF sy-subrc = 0.
+    z_upd = z_upd + 1.
+
+    wa_tvarvc-low  = sy-datum+0(4).   " berechnetes Datum übernehmen
+    wa_tvarvc-high = space.   " Tagesdatum übernehmen
+    MODIFY tvarvc FROM wa_tvarvc.
+    CHECK sy-subrc = 0.
+    PERFORM protocol    USING 2 co_success 'NV' '000'
+                              'Variable wurde aktualisiert: '
+                              varnam
+                              ''
+                              ''
+                     CHANGING gt_xmsg.
+  ELSE.
+    z_err_upd = z_err_upd + 1.
+    PERFORM protocol    USING 2 co_error 'NV' '000'
+                              'Variable wurde nicht gefunden: '
+                              varnam
+                              ''
+                              ''
+                     CHANGING gt_xmsg.
+  ENDIF.
+  CLEAR: wa_tvarvc, wf_datuml, wf_datuml, wf_datumh, mtext.
+ENDFORM.                    "Z_BD87_ERDAT
+
+
+*&---------------------------------------------------------------------*
+*&      Form  Z_HR_LFMONAT
+*&---------------------------------------------------------------------*
+*       wird im HR für das 'Einheitliche LohnMeldeverfahren' (ELM) be-
+*       nötigt.
+*       Diese Variable ist eine Parameter-Variable.
+*----------------------------------------------------------------------*
+FORM z_hr_lfmonat.
+  CLEAR: wa_tvarvc, wf_datuml, wf_datuml, wf_datumh, mtext.
+  varnam = 'Z_HR_LFMONAT'.
+  SELECT SINGLE * FROM tvarvc INTO wa_tvarvc
+  WHERE name = varnam.
+
+  IF sy-subrc = 0.
+    z_upd = z_upd + 1.
+
+    wa_tvarvc-low  = sy-datum+4(2).   " berechnetes Datum übernehmen
+    wa_tvarvc-high = space.           " Tagesdatum übernehmen
+    MODIFY tvarvc FROM wa_tvarvc.
+    CHECK sy-subrc = 0.
+    PERFORM protocol    USING 2 co_success 'NV' '000'
+                              'Variable wurde aktualisiert: '
+                              varnam
+                              ''
+                              ''
+                     CHANGING gt_xmsg.
+  ELSE.
+    z_err_upd = z_err_upd + 1.
+    PERFORM protocol    USING 2 co_error 'NV' '000'
+                              'Variable wurde nicht gefunden: '
+                              varnam
+                              ''
+                              ''
+                     CHANGING gt_xmsg.
+  ENDIF.
+  CLEAR: wa_tvarvc, wf_datuml, wf_datuml, wf_datumh, mtext.
+ENDFORM.                    "Z_BD87_ERDAT
+
+
+*&---------------------------------------------------------------------*
+*&      Form  z_erster_tag_laufendes_jahr
+*&---------------------------------------------------------------------*
+*       Diese Variable wird für den Stellenplan benötigt
+*       Diese Variable ist eine Parameter-Variable.
+*----------------------------------------------------------------------*
+FORM z_erster_tag_laufendes_jahr.
+  CLEAR: wa_tvarvc, wf_datuml, wf_datuml, wf_datumh, mtext.
+  varnam = 'Z_ERSTER_TAG_LAUFENDES_JAHR'.
+  SELECT SINGLE * FROM tvarvc INTO wa_tvarvc
+  WHERE name = varnam.
+
+  IF sy-subrc = 0.
+    z_upd = z_upd + 1.
+
+    wa_tvarvc-low+0(4) = sy-datum+0(4). " berechnetes Datum übernehmen
+    wa_tvarvc-low+4(4) = '0101'.        " berechnetes Datum übernehmen
+    wa_tvarvc-high = space.             " initial übernehmen
+    MODIFY tvarvc FROM wa_tvarvc.
+    CHECK sy-subrc = 0.
+    PERFORM protocol    USING 2 co_success 'NV' '000'
+                              'Variable wurde aktualisiert: '
+                              varnam
+                              ''
+                              ''
+                     CHANGING gt_xmsg.
+  ELSE.
+    z_err_upd = z_err_upd + 1.
+    PERFORM protocol    USING 2 co_error 'NV' '000'
+                              'Variable wurde nicht gefunden: '
+                              varnam
+                              ''
+                              ''
+                     CHANGING gt_xmsg.
+  ENDIF.
+  CLEAR: wa_tvarvc, wf_datuml, wf_datuml, wf_datumh, mtext.
+ENDFORM.                    "z_erster_tag_laufendes_jahr
+
+
+*&---------------------------------------------------------------------*
+*&      Form  z_erster_tag_naechstes_jahr
+*&---------------------------------------------------------------------*
+*       Diese Variable wird für den Stellenplan benötigt
+*       Diese Variable ist eine Parameter-Variable.
+*----------------------------------------------------------------------*
+FORM z_erster_tag_naechstes_jahr.
+  CLEAR: wa_tvarvc, wf_datuml, wf_datuml, wf_datumh, mtext.
+  varnam = 'Z_ERSTER_TAG_NAECHSTES_JAHR'.
+  SELECT SINGLE * FROM tvarvc INTO wa_tvarvc
+  WHERE name = varnam.
+
+  IF sy-subrc = 0.
+    z_upd = z_upd + 1.
+
+    wa_tvarvc-low+0(4) = sy-datum+0(4) + 1. " berechnetes Datum übernehmen
+    wa_tvarvc-low+4(4) = '0101'.            " berechnetes Datum übernehmen
+    wa_tvarvc-high = space.                 " initial übernehmen
+    MODIFY tvarvc FROM wa_tvarvc.
+    CHECK sy-subrc = 0.
+    PERFORM protocol    USING 2 co_success 'NV' '000'
+                              'Variable wurde aktualisiert: '
+                              varnam
+                              ''
+                              ''
+                     CHANGING gt_xmsg.
+  ELSE.
+    z_err_upd = z_err_upd + 1.
+    PERFORM protocol    USING 2 co_error 'NV' '000'
+                              'Variable wurde nicht gefunden: '
+                              varnam
+                              ''
+                              ''
+                     CHANGING gt_xmsg.
+  ENDIF.
+  CLEAR: wa_tvarvc, wf_datuml, wf_datuml, wf_datumh, mtext.
+ENDFORM.                    "z_erster_tag_naechstes_jahr
+
+
+*&---------------------------------------------------------------------*
+*&      Form  z_erster_tag_vorjahr
+*&---------------------------------------------------------------------*
+*       Diese Variable wird für den Stellenplan benötigt
+*       Diese Variable ist eine Parameter-Variable.
+*----------------------------------------------------------------------*
+FORM z_erster_tag_vorjahr.
+  CLEAR: wa_tvarvc, wf_datuml, wf_datuml, wf_datumh, mtext.
+  varnam = 'Z_ERSTER_TAG_VORJAHR'.
+  SELECT SINGLE * FROM tvarvc INTO wa_tvarvc
+  WHERE name = varnam.
+
+  IF sy-subrc = 0.
+    z_upd = z_upd + 1.
+
+    wa_tvarvc-low+0(4) = sy-datum+0(4) - 1. " berechnetes Datum übernehmen
+    wa_tvarvc-low+4(4) = '0101'.            " berechnetes Datum übernehmen
+    wa_tvarvc-high = space.                 " initial übernehmen
+    MODIFY tvarvc FROM wa_tvarvc.
+    CHECK sy-subrc = 0.
+    PERFORM protocol    USING 2 co_success 'NV' '000'
+                              'Variable wurde aktualisiert: '
+                              varnam
+                              ''
+                              ''
+                     CHANGING gt_xmsg.
+  ELSE.
+    z_err_upd = z_err_upd + 1.
+    PERFORM protocol    USING 2 co_error 'NV' '000'
+                              'Variable wurde nicht gefunden: '
+                              varnam
+                              ''
+                              ''
+                     CHANGING gt_xmsg.
+  ENDIF.
+  CLEAR: wa_tvarvc, wf_datuml, wf_datuml, wf_datumh, mtext.
+ENDFORM.                    "z_erster_tag_vorjahr
+
+
+*&---------------------------------------------------------------------*
+*&      Form  z_letzter_tag_vorjahr
+*&---------------------------------------------------------------------*
+*       Diese Variable wird für den Stellenplan benötigt
+*       Diese Variable ist eine Parameter-Variable.
+*----------------------------------------------------------------------*
+FORM z_letzter_tag_vorjahr.
+  CLEAR: wa_tvarvc, wf_datuml, wf_datuml, wf_datumh, mtext.
+  varnam = 'Z_LETZTER_TAG_VORJAHR'.
+  SELECT SINGLE * FROM tvarvc INTO wa_tvarvc
+  WHERE name = varnam.
+
+  IF sy-subrc = 0.
+    z_upd = z_upd + 1.
+
+    wa_tvarvc-low+0(4) = sy-datum+0(4) - 1. " berechnetes Datum übernehmen
+    wa_tvarvc-low+4(4) = '1231'.            " berechnetes Datum übernehmen
+    wa_tvarvc-high = space.                 " initial übernehmen
+    MODIFY tvarvc FROM wa_tvarvc.
+    CHECK sy-subrc = 0.
+    PERFORM protocol    USING 2 co_success 'NV' '000'
+                              'Variable wurde aktualisiert: '
+                              varnam
+                              ''
+                              ''
+                     CHANGING gt_xmsg.
+  ELSE.
+    z_err_upd = z_err_upd + 1.
+    PERFORM protocol    USING 2 co_error 'NV' '000'
+                              'Variable wurde nicht gefunden: '
+                              varnam
+                              ''
+                              ''
+                     CHANGING gt_xmsg.
+  ENDIF.
+  CLEAR: wa_tvarvc, wf_datuml, wf_datuml, wf_datumh, mtext.
+ENDFORM.                    "z_letzter_tag_vorjahr
+
+
+*&---------------------------------------------------------------------*
+*&      Form  Z_MAT2FID_1701
+*&---------------------------------------------------------------------*
+* Ersteller   : G_MHERZO / M. Herzog - Spital Thurgau AG, Frauenfeld
+* Datum       : 31.01.2018
+* Beschreibung: Wird für die tägl. Datumsberechnung benötigt, um die
+*               zu fakturierenden Aufträge für die Buchung auf die IS-H-
+*               Fälle zu bestimmen
+*
+*               Die TIAG Beschaffung ZB erfasst die Materialien fort-
+*               laufend, welche neben den üblichen Leistungen auch auf die
+*               IS-H-Fälle abgerechnet werden sollen.
+*
+*               Der Einfachheit halber wird zuerst das End-Datum be-
+*               rechnet. Mit diesem Ergebnis wird alsdann der Vormo-
+*               nat bestimmt. Dieses Vorgehen macht speziell am
+*               Monatsanfang Sinn.
+*----------------------------------------------------------------------*
+FORM z_mat2fid_1701.
+  CLEAR: wa_tvarvc, wf_datuml, wf_datumh, mtext.
+  DATA: lt_rsintrange TYPE TABLE OF rsintrange.
+  varnam = 'Z_MAT2FID_1701'.
+  SELECT SINGLE * FROM tvarvc INTO wa_tvarvc
+  WHERE name = varnam.
+
+  IF sy-subrc = 0.
+    z_upd = z_upd + 1.
+
+    "Enddatum bestimmen
+*    CALL FUNCTION 'BKK_ADD_WORKINGDAY'
+*      EXPORTING
+*        i_date      = sy-datum   " Ausgangsdatum für Datumsberechnung
+*        i_days      = '2-'       " Anzahl Arbeitstage für Berechnung
+*        i_calendar1 = 'CH'       " Fabrikkalender
+*      IMPORTING
+*        e_date      = wf_datumh.  " Datum
+        wf_datumh = sy-datum.  " Datum
+
+    "Startdatum bestimmen (1. des Vormonats)
+    CALL FUNCTION 'RP_CALC_DATE_IN_INTERVAL'
+      EXPORTING
+        date      = wf_datumh
+        days      = 00
+        months    = 01
+        signum    = '-'
+        years     = 00
+      IMPORTING
+        calc_date = wf_datuml.
+
+    CHECK sy-subrc = 0.
+    wf_datuml+6(02) = '01'.      " fix den 1. einsetzen
+    wa_tvarvc-low  = wf_datuml.  " berechnetes Datum übernehmen
+    wa_tvarvc-high = wf_datumh.  " Tagesdatum übernehmen
+    MODIFY tvarvc FROM wa_tvarvc.
+    CHECK sy-subrc = 0.
+    PERFORM protocol    USING 2 co_success 'NV' '000'
+                              'Variable wurde aktualisiert: '
+                              varnam
+                              ''
+                              ''
+                     CHANGING gt_xmsg.
+  ELSE.
+    z_err_upd = z_err_upd + 1.
+    PERFORM protocol    USING 2 co_error 'NV' '000'
+                              'Variable wurde nicht gefunden: '
+                              varnam
+                              ''
+                              ''
+                     CHANGING gt_xmsg.
+  ENDIF.
+  CLEAR: wa_tvarvc, wf_datuml, wf_datumh, mtext.
+ENDFORM.                    "Z_MAT2FID_1701
+
+
+*&---------------------------------------------------------------------*
+*&      Form  Z_MAT2FID_1702
+*&---------------------------------------------------------------------*
+* Ersteller   : G_MHERZO / M. Herzog - Spital Thurgau AG, Frauenfeld
+* Datum       : 31.01.2018
+* Beschreibung: Wird für die tägl. Datumsberechnung benötigt, um die
+*               zu fakturierenden Aufträge für die Buchung auf die IS-H-
+*               Fälle zu bestimmen
+*
+*               Die TIAG Beschaffung OPS erfasst die Materialien fort-
+*               laufend, welche neben den üblichen Leistungen auch auf die
+*               IS-H-Fälle abgerechnet werden sollen.
+*
+*               Der Einfachheit halber wird zuerst das End-Datum be-
+*               rechnet. Mit diesem Ergebnis wird alsdann der Vormo-
+*               nat bestimmt. Dieses Vorgehen macht speziell am
+*               Monatsanfang Sinn.
+*----------------------------------------------------------------------*
+FORM z_mat2fid_1702.
+  CLEAR: wa_tvarvc, wf_datuml, wf_datumh, mtext.
+  DATA: lt_rsintrange TYPE TABLE OF rsintrange.
+  varnam = 'Z_MAT2FID_1702'.
+  SELECT SINGLE * FROM tvarvc INTO wa_tvarvc
+  WHERE name = varnam.
+
+  IF sy-subrc = 0.
+    z_upd = z_upd + 1.
+
+    "Enddatum bestimmen
+*    CALL FUNCTION 'BKK_ADD_WORKINGDAY'
+*      EXPORTING
+*        i_date      = sy-datum   " Ausgangsdatum für Datumsberechnung
+*        i_days      = '2-'       " Anzahl Arbeitstage für Berechnung
+*        i_calendar1 = 'CH'       " Fabrikkalender
+*      IMPORTING
+*        e_date      = wf_datumh.  " Datum
+        wf_datumh = sy-datum.  " Datum
+
+    "Startdatum bestimmen (1. des Vormonats)
+    CALL FUNCTION 'RP_CALC_DATE_IN_INTERVAL'
+      EXPORTING
+        date      = wf_datumh
+        days      = 00
+        months    = 01
+        signum    = '-'
+        years     = 00
+      IMPORTING
+        calc_date = wf_datuml.
+
+    CHECK sy-subrc = 0.
+    wf_datuml+6(02) = '01'.      " fix den 1. einsetzen
+    wa_tvarvc-low  = wf_datuml.  " berechnetes Datum übernehmen
+    wa_tvarvc-high = wf_datumh.  " Tagesdatum übernehmen
+    MODIFY tvarvc FROM wa_tvarvc.
+    CHECK sy-subrc = 0.
+    PERFORM protocol    USING 2 co_success 'NV' '000'
+                              'Variable wurde aktualisiert: '
+                              varnam
+                              ''
+                              ''
+                     CHANGING gt_xmsg.
+  ELSE.
+    z_err_upd = z_err_upd + 1.
+    PERFORM protocol    USING 2 co_error 'NV' '000'
+                              'Variable wurde nicht gefunden: '
+                              varnam
+                              ''
+                              ''
+                     CHANGING gt_xmsg.
+  ENDIF.
+  CLEAR: wa_tvarvc, wf_datuml, wf_datumh, mtext.
+ENDFORM.                    "Z_MAT2FID_1702
+
+
+*&---------------------------------------------------------------------*
+*&      Form  PROTOCOL
+*&---------------------------------------------------------------------*
+*       put one PROTOCOL-info into table
+*----------------------------------------------------------------------*
+FORM protocol    USING p_level TYPE any
+                       p_typ   TYPE any
+                       p_ag    TYPE any
+                       p_nr    TYPE any
+                       p_v1    TYPE any
+                       p_v2    TYPE any
+                       p_v3    TYPE any
+                       p_v4    TYPE any
+              CHANGING pt_xmsg TYPE tyt_xmsg.
+
+  DATA: ls_xmsg        TYPE sprot_u.
+
+* build data for XMSG + append
+  ls_xmsg-level    = p_level.
+  ls_xmsg-severity = p_typ.
+  ls_xmsg-langu    = sy-langu.
+  ls_xmsg-ag       = p_ag.
+  ls_xmsg-msgnr    = p_nr.
+  ls_xmsg-newobj   = space.
+  ls_xmsg-var1     = p_v1.
+  ls_xmsg-var2     = p_v2.
+  ls_xmsg-var3     = p_v3.
+  ls_xmsg-var4     = p_v4.
+
+  APPEND ls_xmsg TO pt_xmsg.
+
+ENDFORM.                               " PROTOCOL
+
+
+*&---------------------------------------------------------------------*
+*&      Form  PROT_START
+*&---------------------------------------------------------------------*
+*       Kopfdaten des Protkolls schreiben
+*----------------------------------------------------------------------*
+FORM prot_start.
+
+* INIT:
+* -) clear "global tables", counters, ...
+  REFRESH gt_xmsg.
+
+  CLEAR z_to_change.
+  CLEAR z_changed.
+  CLEAR z_upd.
+  CLEAR z_del.
+  CLEAR z_ins.
+  CLEAR z_err_upd.
+  CLEAR z_err_del.
+  CLEAR z_err_ins.
+
+* statistic-headline
+  PERFORM protocol  USING 3 co_success 'NV' '000'
+                          '*************************************'
+                          '' '' ''
+                 CHANGING gt_xmsg.
+  PERFORM protocol  USING 3 co_success 'NV' '000'
+                          '* Nachführen der Variablen in TVARV *'
+                          space
+                          space
+                          space
+                 CHANGING gt_xmsg.
+  PERFORM protocol  USING 3 co_success 'NV' '000'
+                          '*************************************'
+                          '' '' ''
+                 CHANGING gt_xmsg.
+  PERFORM protocol  USING 3 co_success 'NV' '000'
+                          '' '' '' ''
+                 CHANGING gt_xmsg.
+
+ENDFORM.                    "prot_start
+
+*&---------------------------------------------------------------------*
+*&      Form  PROT_END
+*&---------------------------------------------------------------------*
+*       Protkoll & Statistik schreiben
+*----------------------------------------------------------------------*
+FORM prot_end.
+
+  DATA: l_string         TYPE string.
+  DATA: l_c8(8)          TYPE c.
+  DATA: l_c10(10)        TYPE c.
+  DATA: l_z_upd          TYPE i.
+  DATA: l_z_err          TYPE i.
+
+
+* statistic:
+
+* -) general
+  PERFORM protocol  USING 3 co_success 'NV' '000'
+                          '' '' '' ''
+                 CHANGING gt_xmsg.
+  PERFORM protocol  USING 3 co_success 'NV' '000'
+                          '' '' '' ''
+                 CHANGING gt_xmsg.
+  WRITE sy-datum TO l_c10.
+  WRITE sy-uzeit TO l_c8.
+  PERFORM protocol  USING 3 co_success 'NV' '000'
+                          'S T A T I S T I K .................. :'
+                          l_c10 l_c8 ''
+                 CHANGING gt_xmsg.
+  PERFORM protocol  USING 3 co_success 'NV' '000'
+                          '======================================'
+                          '' '' ''
+                 CHANGING gt_xmsg.
+  PERFORM protocol  USING 3 co_success 'NV' '000'
+                          '' '' '' ''
+                 CHANGING gt_xmsg.
+
+
+  l_z_upd = z_upd +
+            z_del +
+            z_ins.
+  PERFORM protocol  USING 3 co_success 'NV' '000'
+                          'durchgeführte Änderungen ..: '
+                          l_z_upd '' ''
+                 CHANGING gt_xmsg.
+
+  l_z_err = z_err_upd  +
+            z_err_del  +
+            z_err_ins.
+  PERFORM protocol  USING 3 co_success 'NV' '000'
+                          'fehlerhafte Änderungen ....: '
+                          l_z_err '' ''
+                 CHANGING gt_xmsg.
+  PERFORM protocol  USING 3 co_success 'NV' '000'
+                          '' '' '' ''
+                 CHANGING gt_xmsg.
+
+* real statistic-output
+  CALL FUNCTION 'TR_APPEND_LOG'
+    TABLES
+      xmsg           = gt_xmsg[]
+    EXCEPTIONS
+      file_not_found = 1
+      wrong_call     = 2
+      OTHERS         = 3.
+  CALL FUNCTION 'TR_FLUSH_LOG'
+    EXCEPTIONS
+      OTHERS = 1.
+
+ENDFORM.                    "prot_end
